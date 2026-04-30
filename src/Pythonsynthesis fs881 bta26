@@ -1,0 +1,266 @@
+##BY FS881 and BTA26
+import matplotlib.pyplot as plt
+import math
+
+
+class Component:
+    """
+    Represents a physical electronic component with thermal properties.
+
+    Attributes:
+        name (str): The name of the component.
+        thermal_resistance (float): Thermal resistance in C/W.
+        max_temperature (float): Maximum safe operating temperature in degrees C.
+    """
+
+    def __init__(self, name, thermal_resistance, max_temperature):
+        self.name = name
+        self.thermal_resistance = thermal_resistance
+        self.max_temperature = max_temperature
+
+    def is_safe(self, temperature):
+        """
+        Checks whether the component is within safe temperature limits.
+
+        Args:
+            temperature (float): Current temperature in degrees C.
+
+        Returns:
+            str: 'SAFE' or 'UNSAFE'.
+        """
+        # TODO: add a WARNING level for when temp is within 10 degrees of the limit
+        if temperature <= self.max_temperature:
+            return "SAFE"
+        return "UNSAFE"
+
+
+class DutyCycle:
+    """
+    Defines a repeating on/off power pattern for the simulation.
+
+    Attributes:
+        on_time (float): Duration of on phase in seconds.
+        off_time (float): Duration of off phase in seconds.
+        power_on (float): Power level during on phase in Watts.
+        cycle_time (float): Total duration of one cycle in seconds.
+    """
+
+    def __init__(self, on_time, off_time, power_on):
+        self.on_time = on_time
+        self.off_time = off_time
+        self.power_on = power_on
+        self.cycle_time = on_time + off_time
+
+    def power_at_time(self, t):
+        """
+        Returns the power at a given time based on the duty cycle.
+
+        Args:
+            t (float): Current simulation time in seconds.
+
+        Returns:
+            float: Power in Watts at time t.
+        """
+        if (t % self.cycle_time) < self.on_time:
+            return self.power_on
+        return 0
+
+
+class ThermalModel:
+    """
+    Models first-order thermal response of a component.
+
+    Attributes:
+        ambient_temperature (float): Surrounding temperature in degrees C.
+        component (Component): The component being modelled.
+    """
+
+    def __init__(self, ambient_temperature, component):
+        self.ambient_temperature = ambient_temperature
+        self.component = component
+
+    def next_temperature(self, current_temp, power, time_step):
+        """
+        Calculates the temperature at the next time step.
+
+        Args:
+            current_temp (float): Current temperature in degrees C.
+            power (float): Current power dissipation in Watts.
+            time_step (float): Time increment in seconds.
+
+        Returns:
+            float: Updated temperature in degrees C.
+        """
+        target_temp = self.ambient_temperature + power * self.component.thermal_resistance
+        return current_temp + (target_temp - current_temp) * 0.1 * time_step
+
+
+class Simulation:
+    """
+    Runs the time-stepped thermal simulation across all components.
+
+    Attributes:
+        models (list[ThermalModel]): Thermal models for each component.
+        duty_cycle (DutyCycle): The power pattern applied.
+        duration (float): Total simulation time in seconds.
+        time_step (float): Size of each time increment in seconds.
+    """
+
+    def __init__(self, models, duty_cycle, duration, time_step):
+        self.models = models
+        self.duty_cycle = duty_cycle
+        self.duration = duration
+        self.time_step = time_step
+
+    def run(self):
+        """
+        Steps through time and updates all component temperatures.
+
+        Returns:
+            tuple: history list, stop reason string, overtemp time or None.
+        """
+        temperatures = [model.ambient_temperature for model in self.models]
+        history = []
+
+        t = 0
+        stop_reason = "Completed"
+        overtemp_time = None
+
+        while t <= self.duration:
+            power = self.duty_cycle.power_at_time(t)
+
+            for i in range(len(self.models)):
+                temperatures[i] = self.models[i].next_temperature(
+                    temperatures[i], power, self.time_step
+                )
+
+            history.append((t, temperatures.copy()))
+
+            # TODO: check is_safe() for each component here
+            # record the first UNSAFE event but keep running so full plot works
+
+            t += self.time_step
+
+        return history, stop_reason, overtemp_time
+
+
+class ResultsAnalyser:
+    """
+    Analyses temperature data from a completed simulation.
+
+    Attributes:
+        history (list[tuple]): Time and temperature data from simulation.
+        components (list[Component]): Components that were simulated.
+    """
+
+    def __init__(self, history, components):
+        self.history = history
+        self.components = components
+
+    def max_temperatures(self):
+        """
+        Finds peak temperature for each component.
+
+        Returns:
+            list[float]: Peak temperatures in degrees C.
+        """
+        max_temps = [0] * len(self.components)
+
+        for _, temps in self.history:
+            for i in range(len(temps)):
+                max_temps[i] = max(max_temps[i], temps[i])
+
+        return max_temps
+
+    def thermal_margins(self):
+        """
+        Calculates headroom between peak temp and limit for each component.
+
+        Returns:
+            list[float]: Thermal margins in degrees C.
+        """
+        # TODO: implement this - margin = max_temperature - peak temp for each component
+        pass
+
+
+class ScenarioManager:
+    """
+    Manages running and storing results for multiple simulation scenarios.
+
+    Attributes:
+        results_db (dict): Stores results of each named scenario.
+    """
+
+    def __init__(self):
+        self.results_db = {}
+
+    def run_scenario(self, name, simulation, components):
+        """
+        Runs a simulation and stores its results.
+
+        Args:
+            name (str): Label for this scenario.
+            simulation (Simulation): The Simulation object to run.
+            components (list[Component]): Components used in this simulation.
+        """
+        history, stop_reason, overtemp_time = simulation.run()
+        analyser = ResultsAnalyser(history, components)
+
+        self.results_db[name] = {
+            "history": history,
+            "components": components,
+            "max_temperatures": analyser.max_temperatures(),
+            # TODO: store thermal_margins once implemented in ResultsAnalyser
+            "stop_reason": stop_reason,
+            "overtemp_time": overtemp_time
+        }
+
+    def show_results_figure(self):
+        """
+        Builds a matplotlib figure showing a results summary table.
+        """
+        # TODO: build a formatted table figure showing scenario results
+        # columns: Scenario, Component, Peak Temp, Max Limit, Margin, Status
+        # colour rows green/yellow/red based on safety status
+        # show any warning messages below the table
+        pass
+
+    def plot(self):
+        """
+        Plots temperature over time for all scenarios.
+        """
+        # TODO: create subplots for each component
+        # plot temperature traces for each scenario with different colours
+        # draw dashed limit lines and mark overtemp events
+        # use dark theme styling to match results table
+        pass
+
+
+# =========================
+# DEMO / TEST CODE
+# =========================
+
+components = [
+    Component("MOSFET", 4.0, 100),
+    Component("Inductor", 3.5, 65),
+    Component("Controller IC", 6.0, 85)
+]
+
+models = [ThermalModel(25, c) for c in components]
+
+# 50% duty cycle: 5s on, 5s off at 12W
+duty = DutyCycle(5, 5, 12)
+
+sim = Simulation(models, duty, duration=200, time_step=1)
+
+# TODO: add second scenario with 80% duty cycle for comparison
+# TODO: run both through ScenarioManager and generate plots
+
+manager = ScenarioManager()
+manager.run_scenario("50% Duty Cycle", sim, components)
+
+# basic print to check it runs
+for name, data in manager.results_db.items():
+    print(f"Scenario: {name}")
+    print(f"  Stop reason: {data['stop_reason']}")
+    print(f"  Peak temps: {[f'{t:.1f}C' for t in data['max_temperatures']]}")
