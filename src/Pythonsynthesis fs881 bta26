@@ -134,8 +134,12 @@ class Simulation:
 
             history.append((t, temperatures.copy()))
 
-            # TODO: check is_safe() for each component here
-            # record the first UNSAFE event but keep running so full plot works
+            # check each component using is_safe, only record the first UNSAFE one
+            # importantly we do NOT return early here, simulation keeps going for full plot
+            for i, model in enumerate(self.models):
+                if model.component.is_safe(temperatures[i]) == "UNSAFE" and stop_reason == "Completed":
+                    stop_reason = f"Overtemperature: {model.component.name}"
+                    overtemp_time = t
 
             t += self.time_step
 
