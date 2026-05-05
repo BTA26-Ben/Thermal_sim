@@ -18,18 +18,16 @@ class Component:
         self.thermal_resistance = thermal_resistance
         self.max_temperature = max_temperature
 
-    def is_safe(self, temperature):
+   def is_safe(self, temperature):
         """
-        Checks whether the component is within safe temperature limits.
-
-        Args:
-            temperature (float): Current temperature in degrees C.
+        Checks the safety status of the component at a given temperature.
 
         Returns:
-            str: 'SAFE' or 'UNSAFE'.
+            str: 'SAFE', 'WARNING', or 'UNSAFE'.
         """
-        # TODO: add a WARNING level for when temp is within 10 degrees of the limit
         if temperature <= self.max_temperature:
+            if temperature >= self.max_temperature - 10:
+                return "WARNING"
             return "SAFE"
         return "UNSAFE"
 
