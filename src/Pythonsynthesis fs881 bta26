@@ -223,16 +223,6 @@ class ScenarioManager:
 
     def show_results_figure(self):
         """
-        Builds a matplotlib figure showing a results summary table.
-        """
-        # TODO: build a formatted table figure showing scenario results
-        # columns: Scenario, Component, Peak Temp, Max Limit, Margin, Status
-        # colour rows green/yellow/red based on safety status
-        # show any warning messages below the table
-        pass
-
-    def show_results_figure(self):
-        """
         Builds a matplotlib figure showing a formatted results summary table.
 
         Uses is_safe() on peak temperature to get SAFE, WARNING, or UNSAFE status.
@@ -333,8 +323,64 @@ class ScenarioManager:
             for idx, msg in enumerate(warning_messages):
                 fig.text(0.5, bottom_margin - 0.01 - 0.04 * (idx + 1),
                          f"  {msg}", ha="center", va="top", fontsize=9, color="#ffdd55")
+    def plot(self):
+        """
+        Builds a matplotlib figure plotting temperature over time for all scenarios.
+        Each component gets its own subplot with a dashed limit line and overtemp
+        marker if applicable. Does not call plt.show() so both figures open together.
+        """
+        first = list(self.results_db.values())[0]
+        num_components = len(first["components"])
 
+        fig, axes = plt.subplots(num_components, 1,
+                                 figsize=(12, 4 * num_components), sharex=True)
+        fig.patch.set_facecolor("#1e1e2e")
 
+        if num_components == 1:
+            axes = [axes]
+
+        colours = ["#4fc3f7", "#ffb74d", "#81c784", "#f06292"]
+
+        for scenario_idx, (name, data) in enumerate(self.results_db.items()):
+            colour = colours[scenario_idx % len(colours)]
+            history = data["history"]
+            components = data["components"]
+            overtemp_time = data["overtemp_time"]
+            times = [t for t, _ in history]
+
+            for i in range(num_components):
+                ax = axes[i]
+                ax.set_facecolor("#2a2a3e")
+                temps = [temp_list[i] for _, temp_list in history]
+                ax.plot(times, temps, label=name, color=colour, linewidth=1.5)
+                limit_label = f"Limit: {components[i].max_temperature}C" if scenario_idx == 0 else ""
+                ax.axhline(y=components[i].max_temperature, color="#ff5555",
+                           linestyle="--", linewidth=1.2, label=limit_label)
+                if overtemp_time is not None:
+                    ax.axvline(x=overtemp_time, color=colour, linestyle=":",
+                               linewidth=1.5, alpha=0.7)
+                    y_min, y_max = ax.get_ylim()
+                    ax.annotate(f"Overtemp t={overtemp_time:.0f}s",
+                                xy=(overtemp_time, y_max),
+                                xytext=(overtemp_time + 10, y_max - (y_max - y_min) * 0.25),
+                                fontsize=7, color=colour, va="top")
+                ax.set_ylabel("Temperature (C)", color="white", fontsize=9)
+                ax.set_title(components[i].name, color="white", fontsize=11, pad=6)
+                ax.tick_params(colors="white", labelsize=8)
+                for spine in ax.spines.values():
+                    spine.set_color("#555566")
+                ax.grid(True, color="#3a3a55", linewidth=0.6)
+                handles, labels = ax.get_legend_handles_labels()
+                filtered = [(h, l) for h, l in zip(handles, labels) if l]
+                if filtered:
+                    ax.legend(*zip(*filtered), fontsize=8, facecolor="#2a2a3e",
+                              edgecolor="#555566", labelcolor="white")
+
+        axes[-1].set_xlabel("Time (s)", color="white", fontsize=9)
+        axes[-1].tick_params(colors="white", labelsize=8)
+        fig.subplots_adjust(top=0.93, hspace=0.35)
+        fig.suptitle("Thermal Scenario Comparison", fontsize=14, fontweight="bold", color="white")
+    
 # =========================
 # DEMO / TEST CODE
 # =========================
