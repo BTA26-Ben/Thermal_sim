@@ -181,8 +181,12 @@ class ResultsAnalyser:
         Returns:
             list[float]: Thermal margins in degrees C.
         """
-        # TODO: implement this - margin = max_temperature - peak temp for each component
-        pass
+        max_temps = self.max_temperatures()
+        # margin = how far below the limit the peak was, negative means it went over
+        return [
+            self.components[i].max_temperature - max_temps[i]
+            for i in range(len(self.components))
+        ]
 
 
 class ScenarioManager:
@@ -212,7 +216,7 @@ class ScenarioManager:
             "history": history,
             "components": components,
             "max_temperatures": analyser.max_temperatures(),
-            # TODO: store thermal_margins once implemented in ResultsAnalyser
+            "thermal_margins": analyser.thermal_margins(),
             "stop_reason": stop_reason,
             "overtemp_time": overtemp_time
         }
