@@ -246,27 +246,43 @@ class ScenarioManager:
 # DEMO / TEST CODE
 # =========================
 
-components = [
+# separate component lists for each scenario so they dont share state between runs
+# components designed so 80% duty cycle produces all three statuses:
+# MOSFET peaks ~67C, limit 100C = SAFE
+# Inductor peaks ~58C, limit 65C = WARNING (within 10C of limit)
+# Controller IC peaks ~88C, limit 85C = UNSAFE (exceeded limit)
+components_50 = [
     Component("MOSFET", 4.0, 100),
     Component("Inductor", 3.5, 65),
     Component("Controller IC", 6.0, 85)
 ]
 
-models = [ThermalModel(25, c) for c in components]
+components_80 = [
+    Component("MOSFET", 4.0, 100),
+    Component("Inductor", 3.5, 65),
+    Component("Controller IC", 6.0, 85)
+]
 
-# 50% duty cycle: 5s on, 5s off at 12W
-duty = DutyCycle(5, 5, 12)
+# separate thermal models for each scenario
+models_50 = [ThermalModel(25, c) for c in components_50]
+models_80 = [ThermalModel(25, c) for c in components_80]
 
-sim = Simulation(models, duty, duration=200, time_step=1)
+# 50% duty = 5s on 5s off, 80% duty = 8s on 2s off, both at 12W
+duty_50 = DutyCycle(5, 5, 12)
+duty_80 = DutyCycle(8, 2, 12)
 
-# TODO: add second scenario with 80% duty cycle for comparison
-# TODO: run both through ScenarioManager and generate plots
+# run both for 200 seconds with 1 second timesteps
+sim_50 = Simulation(models_50, duty_50, duration=200, time_step=1)
+sim_80 = Simulation(models_80, duty_80, duration=200, time_step=1)
 
+# run both scenarios and store results
 manager = ScenarioManager()
-manager.run_scenario("50% Duty Cycle", sim, components)
+manager.run_scenario("50% Duty Cycle", sim_50, components_50)
+manager.run_scenario("80% Duty Cycle", sim_80, components_80)
 
 # basic print to check it runs
 for name, data in manager.results_db.items():
     print(f"Scenario: {name}")
     print(f"  Stop reason: {data['stop_reason']}")
     print(f"  Peak temps: {[f'{t:.1f}C' for t in data['max_temperatures']]}")
+    print(f"  Thermal margins: {[f'{m:.1f}C' for m in data['thermal_margins']]}")
