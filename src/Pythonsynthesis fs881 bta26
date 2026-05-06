@@ -5,103 +5,162 @@ import math
 
 class Component:
     """
-    Represents a physical electronic component with thermal properties.
+    A class that represents a physical electronic component with thermal properties.
+
+    I used this to store the key info about each component, mainly its thermal
+    resistance and the maximum temperature it can safely handle.
 
     Attributes:
         name (str): The name of the component.
-        thermal_resistance (float): Thermal resistance in C/W.
+        thermal_resistance (float): How much the component resists heat flow, in degrees C per Watt.
+        max_temperature (float): The highest temperature the component can safely reach in degrees C.
+
+    Args:
+        name (str): Name to identify the component.
+        thermal_resistance (float): Thermal resistance value in C/W.
         max_temperature (float): Maximum safe operating temperature in degrees C.
     """
 
     def __init__(self, name, thermal_resistance, max_temperature):
         self.name = name
-        self.thermal_resistance = thermal_resistance
-        self.max_temperature = max_temperature
+        self.thermal_resistance = thermal_resistance  # higher = heats up more per watt
+        self.max_temperature = max_temperature        # limit we check against later
 
-   def is_safe(self, temperature):
+    def is_safe(self, temperature):
         """
         Checks the safety status of the component at a given temperature.
 
+        I check the temperature against the max limit and also against a warning
+        threshold 10 degrees below the limit. This gives three possible outcomes:
+        SAFE means well within limits, WARNING means dangerously close, and
+        UNSAFE means the limit has been exceeded.
+
+        Args:
+            temperature (float): The current temperature of the component in degrees C.
+
         Returns:
-            str: 'SAFE', 'WARNING', or 'UNSAFE'.
+            str: One of 'SAFE', 'WARNING', or 'UNSAFE'.
         """
         if temperature <= self.max_temperature:
+            # still within limit, but check if its dangerously close (within 10 degrees)
             if temperature >= self.max_temperature - 10:
-                return "WARNING"
-            return "SAFE"
-        return "UNSAFE"
+                return "WARNING"  # too close to limit, flag it
+            return "SAFE"         # well within range, all good
+        return "UNSAFE"           # gone over the limit
 
 
 class DutyCycle:
     """
-    Defines a repeating on/off power pattern for the simulation.
+    Defines a repeating on/off power pattern applied to the components over time.
+
+    A duty cycle means the power is only on for part of each cycle. For example,
+    5 seconds on and 5 seconds off gives a 50% duty cycle. I used the modulo
+    operator to figure out where in the cycle any given time falls.
 
     Attributes:
-        on_time (float): Duration of on phase in seconds.
-        off_time (float): Duration of off phase in seconds.
-        power_on (float): Power level during on phase in Watts.
-        cycle_time (float): Total duration of one cycle in seconds.
+        on_time (float): How long the power is on during each cycle in seconds.
+        off_time (float): How long the power is off during each cycle in seconds.
+        power_on (float): The power level in Watts when the component is active.
+        cycle_time (float): Total duration of one full on/off cycle in seconds.
+
+    Args:
+        on_time (float): Duration of the on phase in seconds.
+        off_time (float): Duration of the off phase in seconds.
+        power_on (float): Power dissipated during the on phase in Watts.
     """
 
     def __init__(self, on_time, off_time, power_on):
         self.on_time = on_time
         self.off_time = off_time
         self.power_on = power_on
-        self.cycle_time = on_time + off_time
+        self.cycle_time = on_time + off_time  # total length of one cycle e.g. 5+5 = 10s
 
     def power_at_time(self, t):
         """
-        Returns the power at a given time based on the duty cycle.
+        Returns the power level at a specific point in time.
+
+        I used modulo to find where in the current cycle we are. If we are still
+        within the on_time portion, the power is active. Otherwise it is zero.
 
         Args:
-            t (float): Current simulation time in seconds.
+            t (float): The current time in the simulation in seconds.
 
         Returns:
-            float: Power in Watts at time t.
+            float: The power in Watts at time t. Either power_on or 0.
         """
+        # mod gives position within current cycle, if less than on_time we are in ON phase
         if (t % self.cycle_time) < self.on_time:
-            return self.power_on
-        return 0
+            return self.power_on  # power is on
+        return 0  # power is off
 
 
 class ThermalModel:
     """
-    Models first-order thermal response of a component.
+    Models how a single component heats up and cools down over time.
+
+    I used a first-order thermal response here, which basically means the
+    temperature moves toward the steady-state value a little bit each time step.
+    The steady-state temperature is calculated from the ambient temperature and
+    how much power is being dissipated through the thermal resistance.
 
     Attributes:
-        ambient_temperature (float): Surrounding temperature in degrees C.
-        component (Component): The component being modelled.
+        ambient_temperature (float): The surrounding temperature in degrees C.
+        component (Component): The component this thermal model belongs to.
+
+    Args:
+        ambient_temperature (float): Background temperature of the environment in degrees C.
+        component (Component): The Component object being modelled.
     """
 
     def __init__(self, ambient_temperature, component):
-        self.ambient_temperature = ambient_temperature
-        self.component = component
+        self.ambient_temperature = ambient_temperature  # room temp basically
+        self.component = component                      # the component this model belongs to
 
     def next_temperature(self, current_temp, power, time_step):
         """
-        Calculates the temperature at the next time step.
+        Calculates what the temperature will be at the next time step.
+
+        The temperature gradually moves toward the steady-state value rather than
+        jumping there instantly. The steady-state is where the component would settle
+        if the power stayed constant forever. I multiply by 0.1 and the time step
+        to control how fast it converges.
 
         Args:
-            current_temp (float): Current temperature in degrees C.
-            power (float): Current power dissipation in Watts.
-            time_step (float): Time increment in seconds.
+            current_temp (float): The temperature of the component right now in degrees C.
+            power (float): The current power being dissipated in Watts.
+            time_step (float): How much time passes between each simulation step in seconds.
 
         Returns:
-            float: Updated temperature in degrees C.
+            float: The updated temperature after one time step in degrees C.
         """
+        # where the temp would settle if power stayed constant (Ta + P * Rth)
         target_temp = self.ambient_temperature + power * self.component.thermal_resistance
+
+        # move a fraction toward target each step, 0.1 * timestep controls speed of convergence
         return current_temp + (target_temp - current_temp) * 0.1 * time_step
 
 
 class Simulation:
     """
-    Runs the time-stepped thermal simulation across all components.
+    Runs the full time-stepped thermal simulation across all components.
+
+    Each time step, I calculate the power from the duty cycle, update all
+    component temperatures using their thermal models, and check if any
+    component has exceeded its safe limit. The simulation always runs to
+    completion for plotting purposes, but records the first overtemperature
+    event it detects.
 
     Attributes:
+        models (list[ThermalModel]): One thermal model per component being simulated.
+        duty_cycle (DutyCycle): The power pattern applied to all components.
+        duration (float): How long the simulation runs in seconds.
+        time_step (float): The size of each time increment in seconds.
+
+    Args:
         models (list[ThermalModel]): Thermal models for each component.
-        duty_cycle (DutyCycle): The power pattern applied.
-        duration (float): Total simulation time in seconds.
-        time_step (float): Size of each time increment in seconds.
+        duty_cycle (DutyCycle): The duty cycle applied during the simulation.
+        duration (float): Total simulation duration in seconds.
+        time_step (float): Time between each simulation step in seconds.
     """
 
     def __init__(self, models, duty_cycle, duration, time_step):
@@ -112,26 +171,38 @@ class Simulation:
 
     def run(self):
         """
-        Steps through time and updates all component temperatures.
+        Steps through time and updates temperatures for all components.
+
+        I start every component at ambient temperature then loop through each
+        time step. At each step I get the current power, update all temperatures,
+        and check if anything has overheated using is_safe(). I record the first
+        UNSAFE event but do NOT stop early, so the full graph can still be plotted.
 
         Returns:
-            tuple: history list, stop reason string, overtemp time or None.
+            tuple:
+                history (list[tuple]): A list of (time, [temperatures]) pairs recorded at each step.
+                stop_reason (str): Either "Completed" or the name of the component that went UNSAFE.
+                overtemp_time (float | None): The time of the first UNSAFE event, or None.
         """
+        # start every component at ambient temp
         temperatures = [model.ambient_temperature for model in self.models]
         history = []
 
         t = 0
-        stop_reason = "Completed"
-        overtemp_time = None
+        stop_reason = "Completed"  # default, only changes if overtemp detected
+        overtemp_time = None       # stays None if nothing goes wrong
 
         while t <= self.duration:
+            # get power level at current time based on duty cycle pattern
             power = self.duty_cycle.power_at_time(t)
 
+            # update each components temperature for this timestep
             for i in range(len(self.models)):
                 temperatures[i] = self.models[i].next_temperature(
                     temperatures[i], power, self.time_step
                 )
 
+            # store snapshot of all temps at this time, use copy so list doesnt get overwritten
             history.append((t, temperatures.copy()))
 
             # check each component using is_safe, only record the first UNSAFE one
@@ -139,20 +210,28 @@ class Simulation:
             for i, model in enumerate(self.models):
                 if model.component.is_safe(temperatures[i]) == "UNSAFE" and stop_reason == "Completed":
                     stop_reason = f"Overtemperature: {model.component.name}"
-                    overtemp_time = t
+                    overtemp_time = t  # save the time it happened
 
-            t += self.time_step
+            t += self.time_step  # move to next timestep
 
         return history, stop_reason, overtemp_time
 
 
 class ResultsAnalyser:
     """
-    Analyses temperature data from a completed simulation.
+    Analyses the recorded temperature data from a completed simulation.
+
+    I use this to extract useful summary information from the raw history,
+    like the peak temperature each component reached and how much headroom
+    it had before hitting its limit.
 
     Attributes:
-        history (list[tuple]): Time and temperature data from simulation.
-        components (list[Component]): Components that were simulated.
+        history (list[tuple]): The time and temperature data from the simulation.
+        components (list[Component]): The components that were simulated.
+
+    Args:
+        history (list[tuple]): Output from Simulation.run(), list of (time, [temps]) pairs.
+        components (list[Component]): The Component objects used in the simulation.
     """
 
     def __init__(self, history, components):
@@ -161,27 +240,36 @@ class ResultsAnalyser:
 
     def max_temperatures(self):
         """
-        Finds peak temperature for each component.
+        Finds the highest temperature each component reached during the simulation.
+
+        I loop through every recorded time step and track the running maximum
+        for each component separately.
 
         Returns:
-            list[float]: Peak temperatures in degrees C.
+            list[float]: A list of peak temperatures, one per component, in degrees C.
         """
+        # start all at 0 and update whenever a higher value is found
         max_temps = [0] * len(self.components)
 
         for _, temps in self.history:
             for i in range(len(temps)):
+                # keep updating if current temp is higher than recorded max
                 max_temps[i] = max(max_temps[i], temps[i])
 
         return max_temps
 
     def thermal_margins(self):
         """
-        Calculates headroom between peak temp and limit for each component.
+        Calculates how much temperature headroom each component had.
+
+        The thermal margin is the gap between the component's limit and its peak
+        temperature. A negative margin means the component exceeded its limit.
 
         Returns:
-            list[float]: Thermal margins in degrees C.
+            list[float]: A list of thermal margins in degrees C, one per component.
         """
-        max_temps = self.max_temperatures()
+        max_temps = self.max_temperatures()  # get peak temps first
+
         # margin = how far below the limit the peak was, negative means it went over
         return [
             self.components[i].max_temperature - max_temps[i]
@@ -193,25 +281,33 @@ class ScenarioManager:
     """
     Manages running and storing results for multiple simulation scenarios.
 
+    I used a dictionary to store each scenario by name so results can be
+    compared easily. Each entry stores the full history, peak temperatures,
+    thermal margins, stop reason, and overtemperature time if applicable.
+
     Attributes:
-        results_db (dict): Stores results of each named scenario.
+        results_db (dict): Stores the results of each named scenario.
     """
 
     def __init__(self):
-        self.results_db = {}
+        self.results_db = {}  # empty to start, fills up as scenarios are run
 
     def run_scenario(self, name, simulation, components):
         """
-        Runs a simulation and stores its results.
+        Runs a single simulation scenario and stores its results.
 
         Args:
-            name (str): Label for this scenario.
-            simulation (Simulation): The Simulation object to run.
-            components (list[Component]): Components used in this simulation.
+            name (str): A label for this scenario used as the dictionary key and plot legend.
+            simulation (Simulation): The configured Simulation object to run.
+            components (list[Component]): The components used in this simulation.
         """
+        # run the simulation and unpack the three return values
         history, stop_reason, overtemp_time = simulation.run()
+
+        # analyse the results to get peak temps and margins
         analyser = ResultsAnalyser(history, components)
 
+        # store everything under the scenario name for later use
         self.results_db[name] = {
             "history": history,
             "components": components,
@@ -225,11 +321,17 @@ class ScenarioManager:
         """
         Builds a matplotlib figure showing a formatted results summary table.
 
-        Uses is_safe() on peak temperature to get SAFE, WARNING, or UNSAFE status.
-        Does not call plt.show() so both figures open together at end of script.
+        I now use is_safe() directly on the peak temperature of each component
+        to get the SAFE, WARNING, or UNSAFE status, which keeps the classification
+        consistent with the method defined in the Component class. The row colour
+        is assigned based on that status.
+
+        I create the figure here but do not call plt.show() so that both this
+        and the graph figure can be opened together by a single plt.show() call
+        at the end of the script.
         """
-        rows = []
-        warning_messages = []
+        rows = []          # will hold all table row data
+        warning_messages = []  # collects warning text to show below table
 
         for name, data in self.results_db.items():
             components = data["components"]
@@ -248,15 +350,17 @@ class ScenarioManager:
 
                 # assign row colour based on status for visual clarity
                 if status == "UNSAFE":
-                    row_colour = "#ffcccc"
+                    row_colour = "#ffcccc"  # red tint
                 elif status == "WARNING":
-                    row_colour = "#fff3cc"
+                    row_colour = "#fff3cc"  # yellow tint
+                    # also add to warnings list so it shows below the table
                     warning_messages.append(
                         f"{name}  |  {comp.name}: only {margin:.1f}C from limit, consider reducing duty cycle"
                     )
                 else:
-                    row_colour = "#ccffcc"
+                    row_colour = "#ccffcc"  # green tint
 
+                # append all the info for this row
                 rows.append([
                     name,
                     comp.name,
@@ -267,10 +371,11 @@ class ScenarioManager:
                     row_colour
                 ])
 
-            # add a summary row showing stop reason for this scenario
+            # add a summary row at the bottom of each scenario showing stop reason
             if stop_reason == "Completed":
                 rows.append(["", f"Result: {stop_reason}", "", "", "", "", "#e8f4e8"])
             else:
+                # include the time it went over so its easy to find on the graph
                 rows.append([
                     "",
                     f"Result: {stop_reason}  at t={overtemp_time:.1f}s",
@@ -283,104 +388,176 @@ class ScenarioManager:
         # figure height grows with number of rows and warnings so nothing gets clipped
         fig_height = max(5, 0.5 * num_rows + 2.0 + 0.5 * num_warnings)
         fig = plt.figure(figsize=(13, fig_height))
-        fig.patch.set_facecolor("#1e1e2e")
+        fig.patch.set_facecolor("#1e1e2e")  # dark background
 
         ax = fig.add_subplot(111)
         ax.set_facecolor("#1e1e2e")
-        ax.axis("off")
+        ax.axis("off")  # hide axes since we just want the table
 
+        # reserve space at top for title and bottom for warnings so nothing gets clipped
         bottom_margin = 0.08 + 0.04 * num_warnings
         fig.subplots_adjust(top=0.88, bottom=bottom_margin, left=0.02, right=0.98)
 
-        fig.text(0.5, 0.95, "Thermal Simulation Results",
-                 ha="center", va="top", fontsize=15, fontweight="bold", color="white")
+        fig.text(
+            0.5, 0.95,
+            "Thermal Simulation Results",
+            ha="center", va="top",
+            fontsize=15, fontweight="bold", color="white"
+        )
 
         col_labels = ["Scenario", "Component", "Peak Temp", "Max Limit", "Margin", "Status"]
         cell_text = [[r[0], r[1], r[2], r[3], r[4], r[5]] for r in rows]
-        cell_colours = [[r[6]] * 6 for r in rows]
+        cell_colours = [[r[6]] * 6 for r in rows]  # same colour across whole row
 
-        table = ax.table(cellText=cell_text, colLabels=col_labels,
-                         cellColours=cell_colours, cellLoc="center", loc="center")
+        # draw the table using matplotlibs built in table function
+        table = ax.table(
+            cellText=cell_text,
+            colLabels=col_labels,
+            cellColours=cell_colours,
+            cellLoc="center",
+            loc="center"
+        )
 
         table.auto_set_font_size(False)
         table.set_fontsize(10)
-        table.scale(1, 1.6)
+        table.scale(1, 1.6)  # make rows taller so easier to read
 
+        # style header row to stand out from the data rows
         for col in range(len(col_labels)):
             header_cell = table[0, col]
             header_cell.set_facecolor("#2d2d44")
             header_cell.set_text_props(color="white", fontweight="bold")
 
+        # dark text on data rows so readable against light coloured backgrounds
         for row_idx in range(1, num_rows + 1):
             for col_idx in range(len(col_labels)):
                 cell = table[row_idx, col_idx]
                 cell.set_text_props(color="#111111")
                 cell.set_edgecolor("#aaaaaa")
 
+        # if any warnings exist show them below the table
         if warning_messages:
-            fig.text(0.5, bottom_margin - 0.01, "Warnings:",
-                     ha="center", va="top", fontsize=10, fontweight="bold", color="#ffcc00")
+            fig.text(
+                0.5, bottom_margin - 0.01,
+                "Warnings:",
+                ha="center", va="top",
+                fontsize=10, fontweight="bold", color="#ffcc00"
+            )
             for idx, msg in enumerate(warning_messages):
-                fig.text(0.5, bottom_margin - 0.01 - 0.04 * (idx + 1),
-                         f"  {msg}", ha="center", va="top", fontsize=9, color="#ffdd55")
+                fig.text(
+                    0.5,
+                    bottom_margin - 0.01 - 0.04 * (idx + 1),
+                    f"  {msg}",
+                    ha="center", va="top",
+                    fontsize=9, color="#ffdd55"
+                )
+        # no plt.show() here, single call at bottom of script opens both figures together
+
     def plot(self):
         """
         Builds a matplotlib figure plotting temperature over time for all scenarios.
-        Each component gets its own subplot with a dashed limit line and overtemp
-        marker if applicable. Does not call plt.show() so both figures open together.
+
+        Each component gets its own subplot. I draw a dashed limit line and mark
+        any overtemperature event with a vertical dotted line. I do not call plt.show()
+        here so both figures open together from the single call at the end of the script.
         """
+        # get number of components from first scenario to know how many subplots needed
         first = list(self.results_db.values())[0]
         num_components = len(first["components"])
 
-        fig, axes = plt.subplots(num_components, 1,
-                                 figsize=(12, 4 * num_components), sharex=True)
+        # one subplot per component, all share same x axis
+        fig, axes = plt.subplots(
+            num_components, 1,
+            figsize=(12, 4 * num_components),
+            sharex=True
+        )
         fig.patch.set_facecolor("#1e1e2e")
 
+        # if only one component axes wont be a list so wrap it to keep loop consistent
         if num_components == 1:
             axes = [axes]
 
+        # colour cycle for different scenarios
         colours = ["#4fc3f7", "#ffb74d", "#81c784", "#f06292"]
 
         for scenario_idx, (name, data) in enumerate(self.results_db.items()):
-            colour = colours[scenario_idx % len(colours)]
+            colour = colours[scenario_idx % len(colours)]  # cycle through colours
             history = data["history"]
             components = data["components"]
             overtemp_time = data["overtemp_time"]
-            times = [t for t, _ in history]
+
+            times = [t for t, _ in history]  # extract time values from history
 
             for i in range(num_components):
                 ax = axes[i]
                 ax.set_facecolor("#2a2a3e")
+
+                # extract temperatures for component i across all time steps
                 temps = [temp_list[i] for _, temp_list in history]
+
                 ax.plot(times, temps, label=name, color=colour, linewidth=1.5)
+
+                # only label the limit line for first scenario to avoid duplicate legend entries
                 limit_label = f"Limit: {components[i].max_temperature}C" if scenario_idx == 0 else ""
-                ax.axhline(y=components[i].max_temperature, color="#ff5555",
-                           linestyle="--", linewidth=1.2, label=limit_label)
+                ax.axhline(
+                    y=components[i].max_temperature,
+                    color="#ff5555",
+                    linestyle="--",
+                    linewidth=1.2,
+                    label=limit_label
+                )
+
+                # if overtemp happened mark it with vertical dotted line and annotation
                 if overtemp_time is not None:
-                    ax.axvline(x=overtemp_time, color=colour, linestyle=":",
-                               linewidth=1.5, alpha=0.7)
+                    ax.axvline(
+                        x=overtemp_time,
+                        color=colour,
+                        linestyle=":",
+                        linewidth=1.5,
+                        alpha=0.7
+                    )
+                    # place annotation inside y range to avoid clipping
                     y_min, y_max = ax.get_ylim()
-                    ax.annotate(f"Overtemp t={overtemp_time:.0f}s",
-                                xy=(overtemp_time, y_max),
-                                xytext=(overtemp_time + 10, y_max - (y_max - y_min) * 0.25),
-                                fontsize=7, color=colour, va="top")
+                    ax.annotate(
+                        f"Overtemp  t={overtemp_time:.0f}s",
+                        xy=(overtemp_time, y_max),
+                        xytext=(overtemp_time + 10, y_max - (y_max - y_min) * 0.25),
+                        fontsize=7,
+                        color=colour,
+                        va="top"
+                    )
+
                 ax.set_ylabel("Temperature (C)", color="white", fontsize=9)
                 ax.set_title(components[i].name, color="white", fontsize=11, pad=6)
                 ax.tick_params(colors="white", labelsize=8)
                 for spine in ax.spines.values():
                     spine.set_color("#555566")
                 ax.grid(True, color="#3a3a55", linewidth=0.6)
+
+                # filter out empty labels before building legend to keep it clean
                 handles, labels = ax.get_legend_handles_labels()
                 filtered = [(h, l) for h, l in zip(handles, labels) if l]
                 if filtered:
-                    ax.legend(*zip(*filtered), fontsize=8, facecolor="#2a2a3e",
-                              edgecolor="#555566", labelcolor="white")
+                    ax.legend(
+                        *zip(*filtered),
+                        fontsize=8,
+                        facecolor="#2a2a3e",
+                        edgecolor="#555566",
+                        labelcolor="white"
+                    )
 
         axes[-1].set_xlabel("Time (s)", color="white", fontsize=9)
         axes[-1].tick_params(colors="white", labelsize=8)
+
+        # subplots_adjust gives title room at top and stops subplots overlapping
         fig.subplots_adjust(top=0.93, hspace=0.35)
-        fig.suptitle("Thermal Scenario Comparison", fontsize=14, fontweight="bold", color="white")
-    
+        fig.suptitle(
+            "Thermal Scenario Comparison",
+            fontsize=14, fontweight="bold", color="white"
+        )
+        # no plt.show() here, single call at bottom of script opens both figures together
+
+
 # =========================
 # DEMO / TEST CODE
 # =========================
@@ -419,9 +596,7 @@ manager = ScenarioManager()
 manager.run_scenario("50% Duty Cycle", sim_50, components_50)
 manager.run_scenario("80% Duty Cycle", sim_80, components_80)
 
-# basic print to check it runs
-for name, data in manager.results_db.items():
-    print(f"Scenario: {name}")
-    print(f"  Stop reason: {data['stop_reason']}")
-    print(f"  Peak temps: {[f'{t:.1f}C' for t in data['max_temperatures']]}")
-    print(f"  Thermal margins: {[f'{m:.1f}C' for m in data['thermal_margins']]}")
+# build both figures then open together with single plt.show()
+manager.show_results_figure()
+manager.plot()
+plt.show()
